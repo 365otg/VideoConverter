@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU Video Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #drop-zone {
+            border-style: dashed;
+        }
+        #log-output {
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-gray-800 p-8 rounded-2xl shadow-2xl">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-blue-400">CPU Video Converter</h1>
+            <p class="text-lg text-gray-400 mt-1">Convert video files entirely in your browser.</p>
+        </header>
+
+        <main>
+            <!-- File Drop Zone -->
+            <div id="drop-zone" class="border-4 border-gray-600 rounded-lg p-10 text-center cursor-pointer hover:border-blue-500 hover:bg-gray-700 transition-colors">
+                <input type="file" id="file-input" class="hidden">
+                <p id="drop-zone-text" class="text-gray-400">Drag & Drop a video file here, or click to select</p>
+                <p id="file-name" class="font-bold text-lg text-blue-300"></p>
+            </div>
+
+            <!-- Conversion Options -->
+            <div id="options-panel" class="hidden mt-6 bg-gray-700 p-4 rounded-lg flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div>
+                    <label for="output-format" class="font-semibold mr-2">Convert to:</label>
+                    <select id="output-format" class="bg-gray-800 border border-gray-600 p-2 rounded-md font-semibold">
+                        <option value="mp4">MP4</option>
+                        <option value="mkv">MKV</option>
+                        <option value="mov">MOV</option>
+                        <option value="avi">AVI</option>
+                        <option value="gif">GIF (Animated)</option>
+                        <option value="mp3">MP3 (Audio Only)</option>
+                    </select>
+                </div>
+                <button id="convert-btn" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 text-lg rounded-md transition-colors">Convert</button>
+            </div>
+
+            <!-- Progress & Output -->
+            <div id="progress-panel" class="hidden mt-6 text-center">
+                <div class="bg-gray-700 w-full h-8 rounded-full overflow-hidden">
+                    <div id="progress-bar" class="bg-blue-500 h-full text-center text-sm leading-8 transition-all duration-300" style="width: 0%;">0%</div>
+                </div>
+                <p id="status-text" class="mt-2 font-semibold text-gray-300">Initializing...</p>
+                
+                <!-- Log Output -->
+                <div class="mt-4 text-left">
+                    <h3 class="font-bold text-lg mb-2">FFmpeg Log:</h3>
+                    <div id="log-output" class="bg-black p-4 rounded-md h-40 overflow-y-auto text-xs text-green-400"></div>
+                </div>
+            </div>
+
+            <!-- Download Link -->
+            <div id="download-panel" class="hidden mt-6 text-center">
+                <h2 class="text-2xl font-bold text-green-400 mb-4">Conversion Complete!</h2>
+                <a id="download-link" class="w-full inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 text-xl rounded-md transition-colors">Download File</a>
+                <button id="reset-btn" class="mt-4 w-full text-gray-400 hover:text-white hover:underline">Convert another file</button>
+            </div>
+        </main>
+        
+        <!-- Footer Links -->
+        <footer class="text-center mt-6 pt-6 border-t border-gray-700">
+             <div class="text-xs text-gray-500 flex justify-center gap-x-4">
+                 <a href="https://paypal.me/overtimegrind" target="_blank" rel="noopener noreferrer" class="hover:underline">
+                    Donate
+                </a>
+                <span>&bull;</span>
+                 <a href="https://365otg.github.io/CPU/" target="_blank" rel="noopener noreferrer" class="hover:underline">
+                    Charles Paris Utilities
+                </a>
+                <span>&bull;</span>
+                <a href="https://365otg.github.io/365CP/" target="_blank" rel="noopener noreferrer" class="hover:underline">
+                    About Me
+                </a>
+            </div>
+        </footer>
+    </div>
+
+    <!-- FFmpeg.wasm via CDN -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elements ---
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+            const dropZoneText = document.getElementById('drop-zone-text');
+            const fileNameDisplay = document.getElementById('file-name');
+            const optionsPanel = document.getElementById('options-panel');
+            const outputFormatSelect = document.getElementById('output-format');
+            const convertBtn = document.getElementById('convert-btn');
+            const progressPanel = document.getElementById('progress-panel');
+            const progressBar = document.getElementById('progress-bar');
+            const statusText = document.getElementById('status-text');
+            const logOutput = document.getElementById('log-output');
+            const downloadPanel = document.getElementById('download-panel');
+            const downloadLink = document.getElementById('download-link');
+            const resetBtn = document.getElementById('reset-btn');
+
+            // --- State ---
+            let inputFile = null;
+            const { createFFmpeg, fetchFile } = FFmpeg;
+            const ffmpeg = createFFmpeg({
+                log: true,
+                corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+            });
+
+            // --- Functions ---
+
+            const resetUI = () => {
+                inputFile = null;
+                fileInput.value = '';
+                dropZone.classList.remove('hidden');
+                dropZoneText.classList.remove('hidden');
+                fileNameDisplay.textContent = '';
+                optionsPanel.classList.add('hidden');
+                progressPanel.classList.add('hidden');
+                downloadPanel.classList.add('hidden');
+                logOutput.textContent = '';
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+                statusText.textContent = 'Initializing...';
+            };
+
+            const handleFileSelect = (file) => {
+                if (!file) return;
+                inputFile = file;
+                dropZoneText.classList.add('hidden');
+                fileNameDisplay.textContent = inputFile.name;
+                optionsPanel.classList.remove('hidden');
+            };
+
+            const convertFile = async () => {
+                if (!inputFile) {
+                    alert('Please select a file first.');
+                    return;
+                }
+                
+                // Hide options and show progress
+                optionsPanel.classList.add('hidden');
+                progressPanel.classList.remove('hidden');
+
+                if (!ffmpeg.isLoaded()) {
+                    statusText.textContent = 'Loading FFmpeg core... (this may take a moment)';
+                    await ffmpeg.load();
+                }
+
+                statusText.textContent = 'Preparing file...';
+                const inputFileName = inputFile.name;
+                const outputFormat = outputFormatSelect.value;
+                const outputFileName = `${inputFileName.split('.').slice(0, -1).join('.')}.${outputFormat}`;
+
+                ffmpeg.FS('writeFile', inputFileName, await fetchFile(inputFile));
+
+                ffmpeg.setProgress(({ ratio }) => {
+                    const progress = Math.round(ratio * 100);
+                    progressBar.style.width = `${progress}%`;
+                    progressBar.textContent = `${progress}%`;
+                    statusText.textContent = `Converting... ${progress}%`;
+                });
+                
+                ffmpeg.setLogger(({ type, message }) => {
+                    logOutput.textContent += `[${type}] ${message}\n`;
+                    logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll
+                });
+
+                statusText.textContent = 'Starting conversion...';
+                await ffmpeg.run('-i', inputFileName, outputFileName);
+
+                statusText.textContent = 'Finalizing...';
+                const data = ffmpeg.FS('readFile', outputFileName);
+
+                const url = URL.createObjectURL(new Blob([data.buffer], { type: `video/${outputFormat}` }));
+                downloadLink.href = url;
+                downloadLink.download = outputFileName;
+
+                // Show download panel
+                progressPanel.classList.add('hidden');
+                downloadPanel.classList.remove('hidden');
+            };
+
+            // --- Event Listeners ---
+
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
+            
+            // Drag and drop events
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('border-blue-500', 'bg-gray-700');
+            });
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500', 'bg-gray-700');
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500', 'bg-gray-700');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFileSelect(files[0]);
+                }
+            });
+
+            convertBtn.addEventListener('click', convertFile);
+            resetBtn.addEventListener('click', resetUI);
+        });
+    </script>
+</body>
+</html>
