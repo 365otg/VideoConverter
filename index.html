@@ -158,43 +158,51 @@
                 optionsPanel.classList.add('hidden');
                 progressPanel.classList.remove('hidden');
 
-                if (!ffmpeg.isLoaded()) {
-                    statusText.textContent = 'Loading FFmpeg core... (this may take a moment)';
-                    await ffmpeg.load();
+                try {
+                    if (!ffmpeg.isLoaded()) {
+                        statusText.textContent = 'Loading FFmpeg core... (this may take a moment)';
+                        await ffmpeg.load();
+                    }
+
+                    statusText.textContent = 'Preparing file...';
+                    const inputFileName = inputFile.name;
+                    const outputFormat = outputFormatSelect.value;
+                    const outputFileName = `${inputFileName.split('.').slice(0, -1).join('.')}.${outputFormat}`;
+
+                    ffmpeg.FS('writeFile', inputFileName, await fetchFile(inputFile));
+
+                    ffmpeg.setProgress(({ ratio }) => {
+                        if (ratio < 0) return; // Ignore negative ratios
+                        const progress = Math.round(ratio * 100);
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.textContent = `${progress}%`;
+                        statusText.textContent = `Converting... ${progress}%`;
+                    });
+                    
+                    ffmpeg.setLogger(({ type, message }) => {
+                        logOutput.textContent += `${message}\n`;
+                        logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll
+                    });
+
+                    statusText.textContent = 'Starting conversion...';
+                    await ffmpeg.run('-i', inputFileName, outputFileName);
+
+                    statusText.textContent = 'Finalizing...';
+                    const data = ffmpeg.FS('readFile', outputFileName);
+
+                    const mimeType = outputFormat === 'mp3' ? 'audio/mpeg' : `video/${outputFormat}`;
+                    const url = URL.createObjectURL(new Blob([data.buffer], { type: mimeType }));
+                    downloadLink.href = url;
+                    downloadLink.download = outputFileName;
+
+                    // Show download panel
+                    progressPanel.classList.add('hidden');
+                    downloadPanel.classList.remove('hidden');
+                } catch (error) {
+                    console.error(error);
+                    statusText.textContent = 'An error occurred during conversion. Please check the console.';
+                    logOutput.textContent += `\n\nERROR: ${error.message}`;
                 }
-
-                statusText.textContent = 'Preparing file...';
-                const inputFileName = inputFile.name;
-                const outputFormat = outputFormatSelect.value;
-                const outputFileName = `${inputFileName.split('.').slice(0, -1).join('.')}.${outputFormat}`;
-
-                ffmpeg.FS('writeFile', inputFileName, await fetchFile(inputFile));
-
-                ffmpeg.setProgress(({ ratio }) => {
-                    const progress = Math.round(ratio * 100);
-                    progressBar.style.width = `${progress}%`;
-                    progressBar.textContent = `${progress}%`;
-                    statusText.textContent = `Converting... ${progress}%`;
-                });
-                
-                ffmpeg.setLogger(({ type, message }) => {
-                    logOutput.textContent += `[${type}] ${message}\n`;
-                    logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll
-                });
-
-                statusText.textContent = 'Starting conversion...';
-                await ffmpeg.run('-i', inputFileName, outputFileName);
-
-                statusText.textContent = 'Finalizing...';
-                const data = ffmpeg.FS('readFile', outputFileName);
-
-                const url = URL.createObjectURL(new Blob([data.buffer], { type: `video/${outputFormat}` }));
-                downloadLink.href = url;
-                downloadLink.download = outputFileName;
-
-                // Show download panel
-                progressPanel.classList.add('hidden');
-                downloadPanel.classList.remove('hidden');
             };
 
             // --- Event Listeners ---
